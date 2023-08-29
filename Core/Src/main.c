@@ -25,6 +25,7 @@
 /* USER CODE BEGIN Includes */
 #include "SEGGER_SYSVIEW.h"
 #include "uart.h"
+#include "queue.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -34,7 +35,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define STACK_SIZE		128
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -45,14 +46,15 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+QueueHandle_t Usart2RxHandle;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
-
+void uartPrintOutTask(void *arg);
+void polledUartReceive(void *arg);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -76,7 +78,8 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  Usart2RxHandle = xQueueCreate(64, sizeof(uint8_t));
+  assert_param(Usart2RxHandle != NULL);
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -91,6 +94,9 @@ int main(void)
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
   uart2Init();
+
+  xTaskCreate(uartPrintOutTask, "PrintTask", STACK_SIZE, NULL, tskIDLE_PRIORITY + 2, NULL);
+  xTaskCreate(polledUartReceive, "ReceiveTask", STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -166,7 +172,29 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void polledUartReceive(void *arg)
+{
+	uint8_t nextByte;
 
+	while(1)
+	{
+		while(!(USART2->ISR & USART_ISR_RXNE_Msk));
+		nextByte = USART2->RDR;
+		xQueueSend(Usart2RxHandle, &nextByte, 0);
+	}
+}
+
+void uartPrintOutTask(void *arg)
+{
+	uint8_t rcvByte;
+
+	while(1)
+	{
+		xQueueReceive(Usart2RxHandle, &rcvByte, portMAX_DELAY);
+		HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
+		SEGGER_SYSVIEW_PrintfHost("%c", rcvByte);
+	}
+}
 /* USER CODE END 4 */
 
 /**
